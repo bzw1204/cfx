@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"cfx/src/constants"
+	"cfx/internal/constants"
 	"encoding/json"
 	"fmt"
 	"regexp"

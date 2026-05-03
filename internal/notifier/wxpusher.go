@@ -2,7 +2,7 @@ package notifier
 
 import (
 	"bytes"
-	"cfx/src/config"
+	"cfx/internal/config"
 	"encoding/json"
 	"fmt"
 	"net"

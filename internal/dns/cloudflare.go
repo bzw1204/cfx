@@ -2,10 +2,10 @@ package dns
 
 import (
 	"bytes"
-	"cfx/src/config"
-	"cfx/src/network"
-	"cfx/src/notifier"
-	"cfx/src/utils"
+	"cfx/internal/config"
+	"cfx/internal/network"
+	"cfx/internal/notifier"
+	"cfx/internal/utils"
 	"encoding/json"
 	"fmt"
 	"net"

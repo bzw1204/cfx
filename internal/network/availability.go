@@ -1,7 +1,7 @@
 package network
 
 import (
-	"cfx/src/utils"
+	"cfx/internal/utils"
 	"encoding/json"
 	"fmt"
 	"net"

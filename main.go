@@ -1,12 +1,11 @@
 package main
 
 import (
-	"cfx/src/config"
-	"cfx/src/dns"
-	"cfx/src/github"
-	"cfx/src/network"
-	"cfx/src/notifier"
-	"cfx/src/utils"
+	"cfx/internal/config"
+	"cfx/internal/dns"
+	"cfx/internal/network"
+	"cfx/internal/notifier"
+	"cfx/internal/utils"
 	"fmt"
 	"os"
 	"sort"
@@ -35,10 +34,10 @@ func main() {
 	}
 	logger.Sugar().Infof("当前模式："+modeStr+"，每个节点测试 %d 次 TCP 连接", cfg.GlobalTopN, cfg.TcpProbes)
 	logger.Sugar().Infof("最低成功率要求：%.0f%%", cfg.MinSuccessRate*100)
-	logger.Sugar().Infof("IP 可用性二次筛选：%s（仅对候选节点）", boolToStr(cfg.TestAvailability, "启用", "禁用"))
-	logger.Sugar().Infof("IPv6 客户端 IP 过滤（仅作用于DNS更新环节）：%s", boolToStr(cfg.FilterIpv6Availability, "启用", "禁用"))
-	logger.Sugar().Infof("DNS黑名单过滤：%s，黑名单国家：%s", boolToStr(cfg.FilterBlockedCountriesEnabled, "启用", "禁用"), strings.Join(cfg.BlockedCountries, ", "))
-	logger.Sugar().Infof("带宽测速候选数：%d，测速文件大小：%.1f MB，超时：%ds", cfg.BandwidthCandidates, cfg.BandwidthSizeMB, cfg.BandwidthTimeout)
+	logger.Sugar().Infof("IP 可用性二次筛选：%s (仅对候选节点)", utils.Bool2Str(cfg.TestAvailability, "启用", "禁用"))
+	logger.Sugar().Infof("IPv6 客户端 IP 过滤(仅作用于DNS更新环节): %s", utils.Bool2Str(cfg.FilterIpv6Availability, "启用", "禁用"))
+	logger.Sugar().Infof("DNS黑名单过滤: %s, 黑名单国家：%s", utils.Bool2Str(cfg.FilterBlockedCountriesEnabled, "启用", "禁用"), strings.Join(cfg.BlockedCountries, ", "))
+	logger.Sugar().Infof("带宽测速候选数: %d, 测速文件大小：%.1f MB,超时：%ds", cfg.BandwidthCandidates, cfg.BandwidthSizeMB, cfg.BandwidthTimeout)
 	if cfg.FilterCountriesEnabled {
 		logger.Sugar().Infof("前置白名单过滤：启用，仅保留：%s", strings.Join(cfg.AllowedCountries, ", "))
 	}
@@ -134,7 +133,7 @@ func main() {
 		completed++
 		now := time.Now()
 		if now.Sub(lastPrint).Seconds() >= float64(cfg.ProgressPrintInterval) || completed == total {
-			printProgress("TCP 测试", completed, total, "")
+			utils.PrintProgress("TCP 测试", completed, total, "")
 			lastPrint = now
 		}
 	}
@@ -238,7 +237,7 @@ func main() {
 			completed++
 			now := time.Now()
 			if now.Sub(lastPrint).Seconds() >= float64(cfg.ProgressPrintInterval) || completed == total {
-				printProgress("[可用性检测]", completed, total, fmt.Sprintf("通过数量：%d", passed))
+				utils.PrintProgress("[可用性检测]", completed, total, fmt.Sprintf("通过数量：%d", passed))
 				lastPrint = now
 			}
 		}
@@ -304,7 +303,7 @@ func main() {
 			completed++
 			now := time.Now()
 			if now.Sub(lastPrint).Seconds() >= float64(cfg.ProgressPrintInterval) || completed == total {
-				printProgress("[带宽测速]", completed, total, "")
+				utils.PrintProgress("[带宽测速]", completed, total, "")
 				lastPrint = now
 			}
 		}
@@ -409,7 +408,7 @@ func main() {
 	}
 
 	// 写入 ip.txt
-	writeIPTxt(finalSelected, cfg)
+	writeIPTxt(finalSelected, logger, cfg)
 	logger.Sugar().Infof("结果已保存到 %s（共 %d 个节点）", cfg.OutputFile, len(finalSelected))
 
 	// 提取 IP 列表
@@ -420,63 +419,23 @@ func main() {
 
 	// 更新 Cloudflare DNS
 	dns.BatchUpdateCloudflareDNS(cfg, ipList, bwResults, availIPInfo, latencyMap)
-
-	// 同步到 GitHub
-	github.SyncToGitHub(cfg)
 }
 
 // writeIPTxt 写入 ip.txt 文件
-func writeIPTxt(nodes []string, cfg *config.Config) {
+func writeIPTxt(nodes []string, logger *zap.Logger, cfg *config.Config) {
 	file, err := os.Create(cfg.OutputFile)
 	if err != nil {
-		zap.L().Error(fmt.Sprintf("无法创建文件 %s: %v", cfg.OutputFile, err))
+		logger.Sugar().Errorf("无法创建文件 %s: %v", cfg.OutputFile, err)
 		return
 	}
 	defer file.Close()
 
-	// 写入头部广告
-	if cfg.AdHeaderEnabled {
-		for _, line := range cfg.AdHeaderLines {
-			file.WriteString(line + "\n")
-		}
-	}
-
 	// 写入节点
 	for _, node := range nodes {
 		if cfg.AdPerlineEnabled && cfg.AdPerlineText != "" {
-			file.WriteString(fmt.Sprintf("%s%s\n", node, cfg.AdPerlineText))
+			fmt.Fprintf(file, "%s%s\n", node, cfg.AdPerlineText)
 		} else {
 			file.WriteString(node + "\n")
 		}
 	}
-
-	// 写入尾部广告
-	if cfg.AdFooterEnabled {
-		for _, line := range cfg.AdFooterLines {
-			file.WriteString(line + "\n")
-		}
-	}
-}
-
-// boolToStr 布尔值转字符串
-func boolToStr(b bool, trueStr, falseStr string) string {
-	if b {
-		return trueStr
-	}
-	return falseStr
-}
-
-func printProgress(label string, completed, total int, extra string) {
-	percent := 0.0
-	if total > 0 {
-		percent = float64(completed) / float64(total) * 100
-	}
-
-	line := fmt.Sprintf("%s 进度：%d/%d (%.1f%%)", label, completed, total, percent)
-	if extra != "" {
-		line += " " + extra
-	}
-
-	// 使用 \r 回车 + \033[2K 清除整行，实现同一行覆盖输出
-	fmt.Printf("\r\033[2K\033[36m%s\033[0m", line)
 }
