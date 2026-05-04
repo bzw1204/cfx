@@ -49,7 +49,7 @@ func FetchNodes(cfg *model.Config) []string {
 	allNodes, err := utils.FetchSource(remotes, &utils.FetchConfig{
 		MaxRetries:     3,
 		RetryDelay:     5,
-		Timeout:        30,
+		Timeout:        10,
 		ConnectTimeout: 5,
 		Logger:         logger,
 	})
