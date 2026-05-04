@@ -1,0 +1,29 @@
+global:
+  enable: true
+  top_n: 10
+  per_country_top_n: 10
+  bandwidth_candidates: 90
+tcp:
+  probes: 10
+  min_success_rate: 0.5
+  timeout: 5
+  socket_timeout: 5
+additional_sources:
+  - enable: true
+    url: "https://zip.cm.edu.kg/all.txt"
+  - enable: true
+    url: "https://countrymerge.pages.dev/all.txt"
+  - enable: true
+    url: "https://wtf-359.pages.dev/wtf.txt"
+availability:
+  enable: true
+  retry: 2
+  timeout: 3
+  retry_delay: 3
+  max_workers: 10
+  connect_timeout: 5
+  check_api: https://api.090227.xyz/check
+bandwidth:
+  enable: true
+  timeout: 5
+  template: https://speed.cloudflare.com/__down?bytes={bytes}

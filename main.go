@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cfx/internal"
 	"cfx/internal/config"
 	"cfx/internal/dns"
 	"cfx/internal/network"
@@ -17,8 +18,7 @@ import (
 
 func main() {
 	// 先加载配置
-	cfgPath := config.GetConfigFilePath()
-	cfg, err := config.LoadConfig(cfgPath)
+	cfg, err := config.LoadConfig("")
 	if err != nil {
 		fmt.Printf("加载配置文件失败: %v\n", err)
 		os.Exit(1)
@@ -64,92 +64,16 @@ func main() {
 	}
 
 	// 前置端口过滤
-	if cfg.PreFilterPortEnabled {
-		before := len(allNodes)
-		var ports []string
-		for _, p := range cfg.PreFilterPorts {
-			ports = append(ports, fmt.Sprintf("%d", p))
-		}
-		allNodes = utils.FilterByPort(allNodes, ports)
-		after := len(allNodes)
-		logger.Sugar().Infof("前置端口过滤（仅保留端口 %s）：%d -> %d 个节点", strings.Join(ports, ", "), before, after)
-		if len(allNodes) == 0 {
-			logger.Sugar().Fatal("前置端口过滤后无任何节点")
-		}
-	}
+	allNodes = internal.PortFilter(allNodes, cfg)
 
 	// 前置黑名单过滤
-	if cfg.PreFilterBlockedEnabled && len(cfg.PreFilterBlockedCountries) > 0 {
-		before := len(allNodes)
-		allNodes = utils.FilterByBlockedCountries(allNodes, cfg.PreFilterBlockedCountries)
-		after := len(allNodes)
-		logger.Sugar().Infof("前置黑名单过滤：%d -> %d 个节点（已屏蔽：%s）", before, after, strings.Join(cfg.PreFilterBlockedCountries, ", "))
-		if len(allNodes) == 0 {
-			zap.L().Fatal("前置黑名单过滤后无任何节点")
-		}
-	}
+	allNodes = internal.BlockedFilter(allNodes, cfg)
 
 	// 白名单过滤
-	if cfg.FilterCountriesEnabled && len(cfg.AllowedCountries) > 0 {
-		before := len(allNodes)
-		allNodes = utils.FilterByAllowedCountries(allNodes, cfg.AllowedCountries)
-		after := len(allNodes)
-		logger.Sugar().Infof("国家过滤（测试前）：%d -> %d 个节点（允许国家：%s）", before, after, strings.Join(cfg.AllowedCountries, ", "))
-		if len(allNodes) == 0 {
-			zap.L().Fatal("过滤后无任何节点")
-		}
-	}
+	allNodes = internal.WhiteListFilter(allNodes, cfg)
 
 	// TCP 测试
-	logger.Sugar().Infof("开始 TCP 连接测试（超时 %.1fs，并发 %d）", cfg.Timeout, cfg.MaxWorkers)
-	total := len(allNodes)
-	completed := 0
-	lastPrint := time.Now()
-
-	var tcpResults []*network.TCPResult
-	sem := make(chan struct{}, cfg.MaxWorkers)
-	resultChan := make(chan *network.TCPResult, total)
-
-	for _, node := range allNodes {
-		go func(nodeStr string) {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			result, err := network.TestTCPNode(nodeStr, cfg.Timeout, cfg.TcpProbes)
-			if err != nil {
-				resultChan <- nil
-				return
-			}
-			resultChan <- result
-		}(node)
-	}
-
-	for completed < total {
-		result := <-resultChan
-		if result != nil {
-			tcpResults = append(tcpResults, result)
-		}
-
-		completed++
-		now := time.Now()
-		if now.Sub(lastPrint).Seconds() >= float64(cfg.ProgressPrintInterval) || completed == total {
-			utils.PrintProgress("TCP 测试", completed, total, "")
-			lastPrint = now
-		}
-	}
-	zap.L().Info("TCP 测试完成")
-
-	if len(tcpResults) == 0 {
-		zap.L().Fatal("没有通过成功率筛选的节点，请检查网络或降低 MIN_SUCCESS_RATE")
-	}
-
-	// 按成功率和延迟排序
-	sort.Slice(tcpResults, func(i, j int) bool {
-		if tcpResults[i].Success != tcpResults[j].Success {
-			return tcpResults[i].Success > tcpResults[j].Success
-		}
-		return tcpResults[i].Latency < tcpResults[j].Latency
-	})
+	tcpResults := internal.TCPTry(allNodes, cfg)
 
 	// 构建延迟映射
 	latencyMap := make(map[string]float64)
@@ -167,16 +91,13 @@ func main() {
 		logger.Sugar().Infof("TCP 最优前 %d 个节点进入候选池", len(candidates))
 	} else {
 		// 分国家模式
-		countryNodes := make(map[string][]*network.TCPResult)
+		countryNodes := make(map[string][]*network.ProbeResult)
 		for _, r := range tcpResults {
 			countryNodes[r.Country] = append(countryNodes[r.Country], r)
 		}
 
 		totalCountries := len(countryNodes)
-		baseLimit := cfg.BandwidthCandidates / totalCountries
-		if baseLimit < 1 {
-			baseLimit = 1
-		}
+		baseLimit := max(cfg.BandwidthCandidates/totalCountries, 1)
 
 		for _, nodes := range countryNodes {
 			// 按成功率和延迟排序
@@ -335,7 +256,7 @@ func main() {
 				finalSelected = append(finalSelected, r.Node)
 			}
 		} else {
-			countryNodes := make(map[string][]*network.TCPResult)
+			countryNodes := make(map[string][]*network.ProbeResult)
 			for _, r := range tcpResults {
 				countryNodes[r.Country] = append(countryNodes[r.Country], r)
 			}

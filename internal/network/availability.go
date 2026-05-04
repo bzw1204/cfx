@@ -13,8 +13,8 @@ import (
 type AvailabilityResult struct {
 	Node      string
 	Available bool
-	Stack     string                 // ipv4/ipv6/unknown
-	ExitInfo  map[string]interface{} // 出口信息
+	Stack     string         // ipv4/ipv6/unknown
+	ExitInfo  map[string]any // 出口信息
 }
 
 // CheckAvailability 检查单个节点的可用性
@@ -27,7 +27,7 @@ func CheckAvailability(nodeStr string, apiURL string, connectTimeout, readTimeou
 			Node:      nodeStr,
 			Available: false,
 			Stack:     "unknown",
-			ExitInfo:  map[string]interface{}{},
+			ExitInfo:  map[string]any{},
 		}, fmt.Errorf("无效的节点格式")
 	}
 
@@ -48,7 +48,7 @@ func CheckAvailability(nodeStr string, apiURL string, connectTimeout, readTimeou
 			Node:      nodeStr,
 			Available: false,
 			Stack:     "unknown",
-			ExitInfo:  map[string]interface{}{},
+			ExitInfo:  map[string]any{},
 		}, err
 	}
 	defer resp.Body.Close()
@@ -58,17 +58,17 @@ func CheckAvailability(nodeStr string, apiURL string, connectTimeout, readTimeou
 			Node:      nodeStr,
 			Available: false,
 			Stack:     "unknown",
-			ExitInfo:  map[string]interface{}{},
+			ExitInfo:  map[string]any{},
 		}, fmt.Errorf("API 返回状态码: %d", resp.StatusCode)
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return &AvailabilityResult{
 			Node:      nodeStr,
 			Available: false,
 			Stack:     "unknown",
-			ExitInfo:  map[string]interface{}{},
+			ExitInfo:  map[string]any{},
 		}, err
 	}
 
@@ -78,18 +78,18 @@ func CheckAvailability(nodeStr string, apiURL string, connectTimeout, readTimeou
 		stack = s
 	}
 
-	exitInfo := map[string]interface{}{}
-	if probeResults, ok := data["probe_results"].(map[string]interface{}); ok {
+	exitInfo := map[string]any{}
+	if probeResults, ok := data["probe_results"].(map[string]any); ok {
 		// 优先使用 IPv6，否则使用 IPv4
-		var probe map[string]interface{}
-		if ipv6Probe, ok := probeResults["ipv6"].(map[string]interface{}); ok {
+		var probe map[string]any
+		if ipv6Probe, ok := probeResults["ipv6"].(map[string]any); ok {
 			probe = ipv6Probe
-		} else if ipv4Probe, ok := probeResults["ipv4"].(map[string]interface{}); ok {
+		} else if ipv4Probe, ok := probeResults["ipv4"].(map[string]any); ok {
 			probe = ipv4Probe
 		}
 
 		if probe != nil {
-			if exit, ok := probe["exit"].(map[string]interface{}); ok {
+			if exit, ok := probe["exit"].(map[string]any); ok {
 				exitInfo = exit
 			}
 		}

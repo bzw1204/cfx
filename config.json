@@ -168,13 +168,13 @@
     "BANDWIDTH_CONNECT_TIMEOUT": 3,
     "_comment_BANDWIDTH_CONNECT_TIMEOUT": "curl 测速连接超时（秒）",
 
-    "MAX_WORKERS": 200,
+    "MAX_WORKERS": 1000,
     "_comment_MAX_WORKERS": "TCP 并发测试的最大线程数",
 
-    "AVAILABILITY_WORKERS": 10,
+    "AVAILABILITY_WORKERS": 100,
     "_comment_AVAILABILITY_WORKERS": "可用性检测的并发线程数",
 
-    "FALLBACK_WORKERS": 10,
+    "FALLBACK_WORKERS": 100,
     "_comment_FALLBACK_WORKERS": "备用国家查询的并发线程数（当标签无法识别时自动调用可用性 API 查询）",
 
     "BANDWIDTH_WORKERS": 10,

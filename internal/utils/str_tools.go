@@ -22,11 +22,11 @@ func PrintProgress(label string, completed, total int, extra string) {
 		percent = float64(completed) / float64(total) * 100
 	}
 
-	line := fmt.Sprintf("%s 进度：%d/%d (%.1f%%)", label, completed, total, percent)
+	line := fmt.Sprintf("[%s]进度: %d/%d (%.1f%%)", label, completed, total, percent)
 	if extra != "" {
 		line += " " + extra
 	}
 
 	// 使用 \r 回车 + \033[2K 清除整行，实现同一行覆盖输出
-	fmt.Printf("\r\033[2K\033[36m%s\033[0m", line)
+	fmt.Printf("\r\033[2K\033[36m%s\033[0m\n", line)
 }
