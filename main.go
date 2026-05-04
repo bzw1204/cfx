@@ -4,8 +4,8 @@ import (
 	"cfx/internal"
 	"cfx/internal/config"
 	"cfx/internal/dns"
+	"cfx/internal/model"
 	"cfx/internal/network"
-	"cfx/internal/notifier"
 	"cfx/internal/utils"
 	"fmt"
 	"os"
@@ -24,22 +24,22 @@ func main() {
 		os.Exit(1)
 	}
 	// 根据配置初始化日志
-	logger := config.InitLogger(true, cfg.LogFile)
+	logger := config.InitLogger(true, "./cfx.log")
 	defer logger.Sync()
 
 	// 打印配置信息
 	modeStr := "全局最优%d个"
-	if !cfg.UseGlobalMode {
+	if !cfg.Global.Enable {
 		modeStr = "每个国家最优%d个"
 	}
-	logger.Sugar().Infof("当前模式："+modeStr+"，每个节点测试 %d 次 TCP 连接", cfg.GlobalTopN, cfg.TcpProbes)
-	logger.Sugar().Infof("最低成功率要求：%.0f%%", cfg.MinSuccessRate*100)
-	logger.Sugar().Infof("IP 可用性二次筛选：%s (仅对候选节点)", utils.Bool2Str(cfg.TestAvailability, "启用", "禁用"))
-	logger.Sugar().Infof("IPv6 客户端 IP 过滤(仅作用于DNS更新环节): %s", utils.Bool2Str(cfg.FilterIpv6Availability, "启用", "禁用"))
-	logger.Sugar().Infof("DNS黑名单过滤: %s, 黑名单国家：%s", utils.Bool2Str(cfg.FilterBlockedCountriesEnabled, "启用", "禁用"), strings.Join(cfg.BlockedCountries, ", "))
-	logger.Sugar().Infof("带宽测速候选数: %d, 测速文件大小：%.1f MB,超时：%ds", cfg.BandwidthCandidates, cfg.BandwidthSizeMB, cfg.BandwidthTimeout)
-	if cfg.FilterCountriesEnabled {
-		logger.Sugar().Infof("前置白名单过滤：启用，仅保留：%s", strings.Join(cfg.AllowedCountries, ", "))
+	logger.Sugar().Infof("当前模式："+modeStr+"，每个节点测试 %d 次 TCP 连接", cfg.Global.TopN, cfg.Tcp.Probes)
+	logger.Sugar().Infof("最低成功率要求：%.0f%%", cfg.Tcp.MinSuccessRate*100)
+	logger.Sugar().Infof("IP 可用性二次筛选：%s (仅对候选节点)", utils.Bool2Str(cfg.Availability.Enabled, "启用", "禁用"))
+	logger.Sugar().Infof("IPv6 客户端 IP 过滤(仅作用于DNS更新环节): %s", utils.Bool2Str(cfg.Availability.IPV6Availability, "启用", "禁用"))
+	logger.Sugar().Infof("DNS黑名单过滤: %s, 黑名单国家：%s", utils.Bool2Str(cfg.Filter.BlockedEnabled, "启用", "禁用"), strings.Join(cfg.Filter.BlockedCountries, ", "))
+	logger.Sugar().Infof("带宽测速候选数: %d, 测速文件大小：%.1f MB,超时：%ds", cfg.Global.BandwidthCandidates, cfg.Bandwidth.SizeMB, cfg.Bandwidth.Timeout)
+	if cfg.Filter.CountriesEnabled {
+		logger.Sugar().Infof("前置白名单过滤：启用，仅保留：%s", strings.Join(cfg.Filter.AllowedCountries, ", "))
 	}
 
 	// 从数据源获取节点
@@ -83,8 +83,8 @@ func main() {
 
 	// 选择候选节点
 	var candidates []string
-	if cfg.UseGlobalMode {
-		limit := min(cfg.BandwidthCandidates, len(tcpResults))
+	if cfg.Global.Enable {
+		limit := min(cfg.Global.BandwidthCandidates, len(tcpResults))
 		for _, r := range tcpResults[:limit] {
 			candidates = append(candidates, r.Node)
 		}
@@ -97,7 +97,7 @@ func main() {
 		}
 
 		totalCountries := len(countryNodes)
-		baseLimit := max(cfg.BandwidthCandidates/totalCountries, 1)
+		baseLimit := max(cfg.Global.BandwidthCandidates/totalCountries, 1)
 
 		for _, nodes := range countryNodes {
 			// 按成功率和延迟排序
@@ -126,7 +126,7 @@ func main() {
 	// 可用性检测
 	var candidatesAfterAvail []string
 	var availIPInfo map[string]string
-	for attempt := 1; attempt <= cfg.AvailabilityRetryMax; attempt++ {
+	for attempt := 1; attempt <= cfg.Availability.Retry; attempt++ {
 		logger.Sugar().Infof("[可用性检测] 第 %d 轮检测", attempt)
 
 		completed := 0
@@ -134,7 +134,7 @@ func main() {
 		lastPrint := time.Now()
 
 		var availResults []*network.AvailabilityResult
-		sem := make(chan struct{}, cfg.AvailabilityWorkers)
+		sem := make(chan struct{}, cfg.Availability.MaxWorkers)
 		resultChan := make(chan *network.AvailabilityResult, total)
 
 		for _, node := range candidates {
@@ -142,7 +142,7 @@ func main() {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 
-				result, _ := network.CheckAvailability(nodeStr, cfg.AvailabilityCheckApi, cfg.AvailabilityConnectTimeout, cfg.AvailabilityTimeout)
+				result, _ := network.CheckAvailability(nodeStr, cfg.Availability.CheckApi, cfg.Availability.ConnectTimeout, cfg.Availability.Timeout)
 				resultChan <- result
 			}(node)
 		}
@@ -157,7 +157,7 @@ func main() {
 
 			completed++
 			now := time.Now()
-			if now.Sub(lastPrint).Seconds() >= float64(cfg.ProgressPrintInterval) || completed == total {
+			if now.Sub(lastPrint).Seconds() >= float64(1) || completed == total {
 				utils.PrintProgress("[可用性检测]", completed, total, fmt.Sprintf("通过数量：%d", passed))
 				lastPrint = now
 			}
@@ -177,32 +177,29 @@ func main() {
 			break
 		}
 
-		if attempt < cfg.AvailabilityRetryMax {
-			zap.L().Warn(fmt.Sprintf("本轮可用性检测通过率为 0%%，等待 %d 秒后重试", cfg.AvailabilityRetryDelay))
-			time.Sleep(time.Duration(cfg.AvailabilityRetryDelay) * time.Second)
+		if attempt < cfg.Availability.Retry {
+			logger.Sugar().Warnf("本轮可用性检测通过率为 0%%，等待 %d 秒后重试", cfg.Availability.RetryDelay)
+			time.Sleep(time.Duration(cfg.Availability.RetryDelay) * time.Second)
 		}
 	}
 
 	if len(candidatesAfterAvail) == 0 {
-		zap.L().Error(fmt.Sprintf("可用性检测经 %d 轮重试后仍无节点通过", cfg.AvailabilityRetryMax))
-		notifier.SendWxPusherNotification(cfg,
-			fmt.Sprintf("IP 可用性检测经 %d 轮重试后仍无节点通过，已跳过过滤，使用原候选列表继续", cfg.AvailabilityRetryMax),
-			"可用性检测全部失败")
+		logger.Sugar().Errorf("可用性检测经 %d 轮重试后仍无节点通过", cfg.Availability.Retry)
 		candidatesAfterAvail = candidates
 	}
 
 	// 带宽测速
 	var bwResults []*network.BandwidthResult
-	bandwidthURL := fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", int(cfg.BandwidthSizeMB*1024*1024))
+	bandwidthURL := fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", int(cfg.Bandwidth.SizeMB*1024*1024))
 
-	for attempt := 1; attempt <= cfg.BandwidthRetryMax; attempt++ {
+	for attempt := 1; attempt <= cfg.Bandwidth.Retry; attempt++ {
 		logger.Sugar().Infof("[带宽测速] 第 %d 轮测试", attempt)
 
 		completed := 0
 		total := len(candidatesAfterAvail)
 		lastPrint := time.Now()
 
-		sem := make(chan struct{}, cfg.BandwidthWorkers)
+		sem := make(chan struct{}, cfg.Bandwidth.MaxWorkers)
 		resultChan := make(chan *network.BandwidthResult, total)
 
 		for _, node := range candidatesAfterAvail {
@@ -210,7 +207,7 @@ func main() {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 
-				result, _ := network.MeasureBandwidth(nodeStr, bandwidthURL, cfg.BandwidthConnectTimeout, cfg.BandwidthTimeout)
+				result, _ := network.MeasureBandwidth(nodeStr, bandwidthURL, cfg.Bandwidth.ConnectTimeout, cfg.Bandwidth.Timeout)
 				resultChan <- result
 			}(node)
 		}
@@ -223,7 +220,7 @@ func main() {
 
 			completed++
 			now := time.Now()
-			if now.Sub(lastPrint).Seconds() >= float64(cfg.ProgressPrintInterval) || completed == total {
+			if now.Sub(lastPrint).Seconds() >= float64(1) || completed == total {
 				utils.PrintProgress("[带宽测速]", completed, total, "")
 				lastPrint = now
 			}
@@ -233,22 +230,19 @@ func main() {
 			break
 		}
 
-		if attempt < cfg.BandwidthRetryMax {
-			zap.L().Warn(fmt.Sprintf("本轮测速无有效结果，等待 %d 秒后重试", cfg.BandwidthRetryDelay))
-			time.Sleep(time.Duration(cfg.BandwidthRetryDelay) * time.Second)
+		if attempt < cfg.Bandwidth.Retry {
+			logger.Sugar().Warnf("本轮测速无有效结果，等待 %d 秒后重试", cfg.Bandwidth.RetryDelay)
+			time.Sleep(time.Duration(cfg.Bandwidth.RetryDelay) * time.Second)
 		}
 	}
 
 	// 选择最终节点
 	var finalSelected []string
 	if len(bwResults) == 0 {
-		zap.L().Warn("带宽测速多次重试仍无有效结果，将使用 TCP 筛选结果作为最终节点")
-		notifier.SendWxPusherNotification(cfg,
-			fmt.Sprintf("带宽测速经 %d 轮尝试后仍无有效结果，已降级使用 TCP 排序节点", cfg.BandwidthRetryMax),
-			"带宽测速全部失败")
+		logger.Sugar().Warnf("带宽测速经 %d 轮尝试后仍无有效结果，已降级使用 TCP 排序节点, 带宽测速全部失败", cfg.Bandwidth.Retry)
 
-		if cfg.UseGlobalMode {
-			limit := cfg.GlobalTopN
+		if cfg.Global.Enable {
+			limit := cfg.Global.TopN
 			if limit > len(tcpResults) {
 				limit = len(tcpResults)
 			}
@@ -267,7 +261,7 @@ func main() {
 					}
 					return nodes[i].Latency < nodes[j].Latency
 				})
-				limit := cfg.PerCountryTopN
+				limit := cfg.Global.PerCountryTopN
 				if limit > len(nodes) {
 					limit = len(nodes)
 				}
@@ -277,8 +271,8 @@ func main() {
 			}
 		}
 	} else {
-		if cfg.UseGlobalMode {
-			limit := cfg.GlobalTopN
+		if cfg.Global.Enable {
+			limit := cfg.Global.TopN
 			if limit > len(bwResults) {
 				limit = len(bwResults)
 			}
@@ -294,7 +288,7 @@ func main() {
 				}
 			}
 			for _, nodes := range countrySpeedNodes {
-				limit := cfg.PerCountryTopN
+				limit := cfg.Global.PerCountryTopN
 				if limit > len(nodes) {
 					limit = len(nodes)
 				}
@@ -312,7 +306,7 @@ func main() {
 			})
 		}
 
-		zap.L().Info("================ 最终优选节点 ================")
+		logger.Sugar().Info("================ 最终优选节点 ================")
 		speedMap := make(map[string]float64)
 		for _, r := range bwResults {
 			speedMap[r.Node] = r.Speed
@@ -330,7 +324,7 @@ func main() {
 
 	// 写入 ip.txt
 	writeIPTxt(finalSelected, logger, cfg)
-	logger.Sugar().Infof("结果已保存到 %s（共 %d 个节点）", cfg.OutputFile, len(finalSelected))
+	logger.Sugar().Infof("结果已保存到 %s（共 %d 个节点）", cfg.Global.OutputFile, len(finalSelected))
 
 	// 提取 IP 列表
 	var ipList []string
@@ -343,20 +337,16 @@ func main() {
 }
 
 // writeIPTxt 写入 ip.txt 文件
-func writeIPTxt(nodes []string, logger *zap.Logger, cfg *config.Config) {
-	file, err := os.Create(cfg.OutputFile)
+func writeIPTxt(nodes []string, logger *zap.Logger, cfg *model.Config) {
+	file, err := os.Create(cfg.Global.OutputFile)
 	if err != nil {
-		logger.Sugar().Errorf("无法创建文件 %s: %v", cfg.OutputFile, err)
+		logger.Sugar().Errorf("无法创建文件 %s: %v", cfg.Global.OutputFile, err)
 		return
 	}
 	defer file.Close()
 
 	// 写入节点
 	for _, node := range nodes {
-		if cfg.AdPerlineEnabled && cfg.AdPerlineText != "" {
-			fmt.Fprintf(file, "%s%s\n", node, cfg.AdPerlineText)
-		} else {
-			file.WriteString(node + "\n")
-		}
+		file.WriteString(node + "\n")
 	}
 }

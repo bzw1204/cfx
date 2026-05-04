@@ -1,11 +1,12 @@
 package model
 
 type Global struct {
-	Enable              bool `json:"enable" yaml:"enable"`                             // 是否启用全局模式
-	TopN                int  `json:"top_n" yaml:"top_n"`                               // 全局Top N
-	PerCountryTopN      int  `json:"per_country_top_n" yaml:"per_country_top_n"`       // 每国Top N
-	BandwidthCandidates int  `json:"bandwidth_candidates" yaml:"bandwidth_candidates"` // 带宽候选
-	FallbackWorkers     int  `json:"fallback_workers" yaml:"fallback_workers"`         // 备用线程数
+	Enable              bool   `json:"enable" yaml:"enable"`                             // 是否启用全局模式
+	TopN                int    `json:"top_n" yaml:"top_n"`                               // 全局Top N
+	PerCountryTopN      int    `json:"per_country_top_n" yaml:"per_country_top_n"`       // 每国Top N
+	BandwidthCandidates int    `json:"bandwidth_candidates" yaml:"bandwidth_candidates"` // 带宽候选
+	FallbackWorkers     int    `json:"fallback_workers" yaml:"fallback_workers"`         // 备用线程数
+	OutputFile          string `json:"output_file" yaml:"output_file"`                   // 输出文件路径
 }
 type TCP struct {
 	Probes         int     `json:"probes" yaml:"probes"`                     // 探测次数

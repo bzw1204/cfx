@@ -3,6 +3,7 @@ global:
   top_n: 10
   per_country_top_n: 10
   bandwidth_candidates: 90
+  output_file: "./data/ip.txt"
 tcp:
   probes: 10
   min_success_rate: 0.5
@@ -20,7 +21,7 @@ availability:
   retry: 2
   timeout: 3
   retry_delay: 3
-  max_workers: 10
+  max_workers: 1000
   connect_timeout: 5
   check_api: https://api.090227.xyz/check
 bandwidth:
