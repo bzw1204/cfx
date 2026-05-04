@@ -28,12 +28,24 @@ func ProbeTCPNode(nodeStr string, timeout float64, probes int) (*ProbeResult, er
 
 	minLatency := float64(1<<63 - 1) // 最大值
 	success := 0
+	consecutiveFails := 0
 
 	for range probes {
 		start := time.Now()
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%s", node.IP, node.Port), time.Duration(timeout*float64(time.Second)))
 		if err != nil {
+			consecutiveFails++
+			// 连续失败 2 次且从未成功过 → 提前终止该节点
+			if consecutiveFails >= 2 && success == 0 {
+				break
+			}
 			continue
+		}
+		consecutiveFails = 0
+
+		// SetLinger(0) → 关闭时发 RST 替代 FIN，跳过 TIME_WAIT
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			tcpConn.SetLinger(0)
 		}
 		conn.Close()
 

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -105,38 +107,40 @@ func CheckAvailability(nodeStr string, apiURL string, connectTimeout, readTimeou
 
 // CheckAvailabilityBatch 批量检查节点可用性
 func CheckAvailabilityBatch(nodes []string, apiURL string, connectTimeout, readTimeout int, maxWorkers int, progressCallback func(completed, total int)) []*AvailabilityResult {
-	var results []*AvailabilityResult
 	total := len(nodes)
-	completed := 0
 
 	sem := make(chan struct{}, maxWorkers)
 	resultChan := make(chan *AvailabilityResult, total)
 
+	var wg sync.WaitGroup
+	var completed int32
+
 	for _, node := range nodes {
+		wg.Add(1)
 		go func(nodeStr string) {
+			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			result, _ := CheckAvailability(nodeStr, apiURL, connectTimeout, readTimeout)
 			resultChan <- result
+
+			cur := atomic.AddInt32(&completed, 1)
+			if progressCallback != nil {
+				progressCallback(int(cur), total)
+			}
 		}(node)
 	}
 
 	go func() {
-		for result := range resultChan {
-			results = append(results, result)
-			completed++
-			if progressCallback != nil {
-				progressCallback(completed, total)
-			}
-		}
+		wg.Wait()
+		close(resultChan)
 	}()
 
-	for len(results) < total && completed < total {
-		time.Sleep(10 * time.Millisecond)
+	var results []*AvailabilityResult
+	for result := range resultChan {
+		results = append(results, result)
 	}
-
-	close(resultChan)
 
 	return results
 }

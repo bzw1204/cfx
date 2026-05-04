@@ -50,13 +50,14 @@ func defaultConfig() *model.Config {
 			PerCountryTopN:      10,
 			BandwidthCandidates: 90,
 			FallbackWorkers:     100,
+			OutputFile:          "./data/ip.txt",
 		},
 		Tcp: model.TCP{
-			Probes:         10,
+			Probes:         2,
 			Timeout:        5,
 			MinSuccessRate: 0.5,
 			SocketTimeout:  5,
-			MaxWorkers:     1000,
+			MaxWorkers:     300,
 		},
 		Filter: model.Filter{
 			CountriesEnabled: false,
@@ -90,10 +91,10 @@ func defaultConfig() *model.Config {
 			{Enabled: true, Url: "https://wtf-359.pages.dev/wtf.txt"},
 		},
 		Node: model.Node{
-			Timeout:        10,
+			Timeout:        5,
 			Retry:          3,
 			Retries:        3,
-			ConnectTimeout: 10,
+			ConnectTimeout: 5,
 		},
 		Availability: model.Availability{
 			Enabled:          true,
@@ -107,7 +108,7 @@ func defaultConfig() *model.Config {
 		},
 		Bandwidth: model.Bandwidth{
 			Enabled:        true,
-			SizeMB:         0,
+			SizeMB:         0.5,
 			Timeout:        5,
 			Retry:          2,
 			RetryDelay:     3,

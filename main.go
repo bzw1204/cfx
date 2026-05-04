@@ -9,6 +9,7 @@ import (
 	"cfx/internal/utils"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -242,10 +243,7 @@ func main() {
 		logger.Sugar().Warnf("带宽测速经 %d 轮尝试后仍无有效结果，已降级使用 TCP 排序节点, 带宽测速全部失败", cfg.Bandwidth.Retry)
 
 		if cfg.Global.Enable {
-			limit := cfg.Global.TopN
-			if limit > len(tcpResults) {
-				limit = len(tcpResults)
-			}
+			limit := min(cfg.Global.TopN, len(tcpResults))
 			for _, r := range tcpResults[:limit] {
 				finalSelected = append(finalSelected, r.Node)
 			}
@@ -272,10 +270,7 @@ func main() {
 		}
 	} else {
 		if cfg.Global.Enable {
-			limit := cfg.Global.TopN
-			if limit > len(bwResults) {
-				limit = len(bwResults)
-			}
+			limit := min(cfg.Global.TopN, len(bwResults))
 			for _, r := range bwResults[:limit] {
 				finalSelected = append(finalSelected, r.Node)
 			}
@@ -338,6 +333,15 @@ func main() {
 
 // writeIPTxt 写入 ip.txt 文件
 func writeIPTxt(nodes []string, logger *zap.Logger, cfg *model.Config) {
+	// 确保输出目录存在
+	outputDir := filepath.Dir(cfg.Global.OutputFile)
+	if outputDir != "." && outputDir != "" {
+		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			logger.Sugar().Errorf("无法创建输出目录 %s: %v", outputDir, err)
+			return
+		}
+	}
+
 	file, err := os.Create(cfg.Global.OutputFile)
 	if err != nil {
 		logger.Sugar().Errorf("无法创建文件 %s: %v", cfg.Global.OutputFile, err)

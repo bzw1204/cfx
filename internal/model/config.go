@@ -69,15 +69,15 @@ type Availability struct {
 
 // 带宽配置
 type Bandwidth struct {
-	Enabled        bool   `json:"enabled" yaml:"enabled"`                 // 是否启用带宽控制
-	SizeMB         int    `json:"size_mb" yaml:"size_mb"`                 // 带宽大小（MB）
-	Timeout        int    `json:"timeout" yaml:"timeout"`                 // 带宽超时时间（秒）
-	Retry          int    `json:"retry" yaml:"retry"`                     // 带宽重试次数
-	RetryDelay     int    `json:"retry_delay" yaml:"retry_delay"`         // 带宽重试延迟（秒）
-	UrlTemplate    string `json:"url_template" yaml:"url_template"`       // 带宽 URL 模板
-	ProcessBuffer  int    `json:"process_buffer" yaml:"process_buffer"`   // 带宽处理缓冲区
-	ConnectTimeout int    `json:"connect_timeout" yaml:"connect_timeout"` // 带宽连接超时时间（秒）
-	MaxWorkers     int    `json:"max_workers" yaml:"max_workers"`         // 最大线程数
+	Enabled        bool    `json:"enabled" yaml:"enabled"`                 // 是否启用带宽控制
+	SizeMB         float64 `json:"size_mb" yaml:"size_mb"`                 // 带宽大小（MB）
+	Timeout        int     `json:"timeout" yaml:"timeout"`                 // 带宽超时时间（秒）
+	Retry          int     `json:"retry" yaml:"retry"`                     // 带宽重试次数
+	RetryDelay     int     `json:"retry_delay" yaml:"retry_delay"`         // 带宽重试延迟（秒）
+	UrlTemplate    string  `json:"url_template" yaml:"url_template"`       // 带宽 URL 模板
+	ProcessBuffer  int     `json:"process_buffer" yaml:"process_buffer"`   // 带宽处理缓冲区
+	ConnectTimeout int     `json:"connect_timeout" yaml:"connect_timeout"` // 带宽连接超时时间（秒）
+	MaxWorkers     int     `json:"max_workers" yaml:"max_workers"`         // 最大线程数
 }
 
 // 日志配置

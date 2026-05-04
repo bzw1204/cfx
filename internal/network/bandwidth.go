@@ -7,7 +7,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -77,49 +80,47 @@ func MeasureBandwidth(nodeStr string, bandwidthURL string, connectTimeout, readT
 
 // MeasureBandwidthBatch 批量测量节点带宽
 func MeasureBandwidthBatch(nodes []string, bandwidthURL string, connectTimeout, readTimeout int, maxWorkers int, progressCallback func(completed, total int)) []*BandwidthResult {
-	var results []*BandwidthResult
 	total := len(nodes)
-	completed := 0
 
 	sem := make(chan struct{}, maxWorkers)
 	resultChan := make(chan *BandwidthResult, total)
 
+	var wg sync.WaitGroup
+	var completed int32
+
 	for _, node := range nodes {
+		wg.Add(1)
 		go func(nodeStr string) {
+			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			result, _ := MeasureBandwidth(nodeStr, bandwidthURL, connectTimeout, readTimeout)
 			resultChan <- result
+
+			cur := atomic.AddInt32(&completed, 1)
+			if progressCallback != nil {
+				progressCallback(int(cur), total)
+			}
 		}(node)
 	}
 
 	go func() {
-		for result := range resultChan {
-			if result.Speed > 0 {
-				results = append(results, result)
-			}
-			completed++
-			if progressCallback != nil {
-				progressCallback(completed, total)
-			}
-		}
+		wg.Wait()
+		close(resultChan)
 	}()
 
-	for completed < total {
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	close(resultChan)
-
-	// 按速度降序排序
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Speed > results[i].Speed {
-				results[i], results[j] = results[j], results[i]
-			}
+	var results []*BandwidthResult
+	for result := range resultChan {
+		if result.Speed > 0 {
+			results = append(results, result)
 		}
 	}
+
+	// 按速度降序排序
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Speed > results[j].Speed
+	})
 
 	return results
 }

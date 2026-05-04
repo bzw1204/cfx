@@ -5,10 +5,11 @@ global:
   bandwidth_candidates: 90
   output_file: "./data/ip.txt"
 tcp:
-  probes: 10
-  min_success_rate: 0.5
+  probes: 2
   timeout: 5
-  socket_timeout: 5
+  max_workers: 300
+  min_success_rate: 0.5
+  socket_timeout: 2
 additional_sources:
   - enable: true
     url: "https://zip.cm.edu.kg/all.txt"
