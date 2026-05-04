@@ -46,10 +46,10 @@ func defaultConfig() *model.Config {
 	return &model.Config{
 		Global: model.Global{
 			Enable:              true,
-			TopN:                10,
-			PerCountryTopN:      10,
-			BandwidthCandidates: 90,
-			FallbackWorkers:     100,
+			TopN:                50,
+			PerCountryTopN:      50,
+			BandwidthCandidates: 50,
+			FallbackWorkers:     500,
 			OutputFile:          "./data/ip.txt",
 		},
 		Tcp: model.TCP{

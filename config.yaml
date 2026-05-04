@@ -1,8 +1,8 @@
 global:
   enable: true
-  top_n: 10
-  per_country_top_n: 10
-  bandwidth_candidates: 90
+  top_n: 50
+  per_country_top_n: 50
+  bandwidth_candidates: 50
   output_file: "./data/ip.txt"
 tcp:
   probes: 2
