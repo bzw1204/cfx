@@ -209,6 +209,12 @@ func CheckAvailabilityWithRetry(candidates []string, cfg *model.Config) (passed 
 
 		for _, node := range candidates {
 			go func(nodeStr string) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Sugar().Warnf("[可用性检测] goroutine panic: %v", r)
+						resultChan <- &network.AvailabilityResult{Node: nodeStr, Available: false, Stack: "unknown"}
+					}
+				}()
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				result, _ := network.CheckAvailability(nodeStr, cfg.Availability.CheckApi, cfg.Availability.ConnectTimeout, cfg.Availability.Timeout)
@@ -265,7 +271,15 @@ func MeasureBandwidthWithRetry(candidates []string, cfg *model.Config) []*networ
 		return nil
 	}
 
-	bandwidthURL := fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", int(cfg.Bandwidth.SizeMB*1024*1024))
+	bytes := int(cfg.Bandwidth.SizeMB * 1024 * 1024)
+	if bytes <= 0 {
+		bytes = 52428800 // 50 MB fallback
+	}
+	tpl := cfg.Bandwidth.UrlTemplate
+	if tpl == "" {
+		tpl = "https://speed.cloudflare.com/__down?bytes={bytes}"
+	}
+	bandwidthURL := strings.ReplaceAll(tpl, "{bytes}", fmt.Sprintf("%d", bytes))
 
 	for attempt := 1; attempt <= cfg.Bandwidth.Retry; attempt++ {
 		logger.Sugar().Infof("[带宽测速] 第 %d 轮测试", attempt)
@@ -279,6 +293,12 @@ func MeasureBandwidthWithRetry(candidates []string, cfg *model.Config) []*networ
 
 		for _, node := range candidates {
 			go func(nodeStr string) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Sugar().Warnf("[带宽测速] goroutine panic: %v", r)
+						resultChan <- &network.BandwidthResult{Node: nodeStr, Speed: 0}
+					}
+				}()
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				result, _ := network.MeasureBandwidth(nodeStr, bandwidthURL, cfg.Bandwidth.ConnectTimeout, cfg.Bandwidth.Timeout)

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,17 +61,18 @@ func FetchSource(remotes []string, cfg *FetchConfig) ([]string, error) {
 			var nodes []string
 			var lastErr error
 
-			for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
-				client := resty.New()
-				client.SetTransport(&http.Transport{
-					Proxy: http.ProxyFromEnvironment,
-				})
-				client.SetTimeout(time.Duration(cfg.Timeout) * time.Second)
+			// 在重试循环外创建一次 resty 客户端，避免每次重试重建 transport
+			client := resty.New()
+			client.SetTransport(&http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+			})
+			client.SetTimeout(time.Duration(cfg.Timeout) * time.Second)
+			defer client.Close()
 
+			for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
 				resp, err := client.R().Get(remoteURL)
 				if err != nil {
 					lastErr = err
-					client.Close()
 					if attempt < cfg.MaxRetries {
 						time.Sleep(time.Duration(cfg.RetryDelay) * time.Second)
 						continue
@@ -79,7 +81,6 @@ func FetchSource(remotes []string, cfg *FetchConfig) ([]string, error) {
 				}
 
 				nodes = ParseAdaptive(resp.String())
-				client.Close()
 				break
 			}
 
@@ -92,6 +93,7 @@ func FetchSource(remotes []string, cfg *FetchConfig) ([]string, error) {
 		close(results)
 	}()
 
+	// 基于 ip:port 去重（忽略国家标签差异）
 	seen := make(map[string]struct{})
 	var allNodes []string
 
@@ -103,8 +105,12 @@ func FetchSource(remotes []string, cfg *FetchConfig) ([]string, error) {
 			continue
 		}
 		for _, node := range res.nodes {
-			if _, exists := seen[node]; !exists {
-				seen[node] = struct{}{}
+			key := node
+			if before, _, ok := strings.Cut(node, "#"); ok {
+				key = before // ip:port
+			}
+			if _, exists := seen[key]; !exists {
+				seen[key] = struct{}{}
 				allNodes = append(allNodes, node)
 			}
 		}

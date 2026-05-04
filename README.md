@@ -18,29 +18,32 @@
 
 ```
 cfx/
-├── main.go                    # 主程序入口
-├── go.mod                     # Go 模块依赖
-├── config.json                # 配置文件
-├── cfx                        # 编译后的可执行文件
-└── src/
-    ├── app.go                 # 应用层（预留）
-    ├── config/
-    │   └── config.go          # 配置结构体 + 加载逻辑
-    ├── constants/
-    │   └── constants.go       # 常量定义（正则、国家映射）
-    ├── utils/
-    │   ├── parser.go          # 节点解析引擎
-    │   └── filter.go          # 过滤逻辑
-    ├── network/
-    │   ├── tcp.go             # TCP 连通性测试
-    │   ├── availability.go    # 可用性检测
-    │   └── bandwidth.go       # 带宽测速
-    ├── notifier/
-    │   └── wxpusher.go        # 微信通知
-    ├── dns/
-    │   └── cloudflare.go      # Cloudflare DNS 更新
-    └── github/
-        └── sync.go            # GitHub 同步
+├── main.go                          # 主程序入口
+├── go.mod                           # Go 模块依赖
+├── config.yaml                      # 配置文件（YAML/JSON均可）
+├── Dockerfile                       # Docker 构建文件
+├── docker-compose.yml               # Docker Compose 编排
+├── internal/
+│   ├── app.go                       # 应用层：管道编排
+│   ├── model/
+│   │   └── config.go                # 配置结构体定义
+│   ├── config/
+│   │   ├── config.go                # 配置加载 + 验证
+│   │   └── zap_logger.go            # 日志初始化
+│   ├── constants/
+│   │   └── constants.go             # 常量（国家映射）
+│   ├── utils/
+│   │   ├── parser.go                # 自适应节点解析引擎
+│   │   ├── filter.go                # 端口/国家过滤
+│   │   ├── http.go                  # 数据源并发拉取
+│   │   └── str_tools.go             # 工具函数
+│   ├── network/
+│   │   ├── probe_tcp.go             # TCP 连通性探测（高并发）
+│   │   ├── availability.go          # 可用性检测
+│   │   └── bandwidth.go             # 带宽测速
+│   └── dns/
+│       └── cloudflare.go            # Cloudflare DNS 批量更新
+└── cmd/                             # （可选）子命令入口
 ```
 
 ## 快速开始
@@ -55,21 +58,17 @@ go version
 
 ### 2. 配置
 
-编辑 `config.json` 文件，根据需要修改参数。关键配置项：
+编辑 `config.yaml` 文件（也支持 `config.json`，键名需与 Go 结构体字段匹配），根据需要修改参数。关键配置项：
 
-```json
-{
-    "USE_GLOBAL_MODE": true,           // 全局模式或分国家模式
-    "GLOBAL_TOP_N": 15,                // 全局模式下保留的节点数
-    "ADDITIONAL_SOURCES": [            // 数据源列表
-        {
-            "url": "https://example.com/nodes.txt",
-            "enabled": true
-        }
-    ],
-    "CF_ENABLED": false,               // 是否启用 Cloudflare DNS 更新
-    "ENABLE_WXPUSHER": false           // 是否启用微信通知
-}
+```yaml
+global:
+  enable: true              # 全局模式
+  top_n: 10                 # 全局保留节点数
+additional_sources:
+  - url: "https://example.com/nodes.txt"
+    enabled: true
+cloudflare:
+  enabled: false            # Cloudflare DNS 更新开关
 ```
 
 ### 3. 编译
@@ -151,9 +150,9 @@ WxPusher 配置：
 
 ### 添加新功能
 
-1. 在 `src/` 下创建新包
+1. 在 `internal/` 下创建新包
 2. 导出公开的函数和类型（首字母大写）
-3. 在 `main.go` 中导入并使用
+3. 在 `internal/app.go` 或 `main.go` 中导入并使用
 
 ### 代码风格
 

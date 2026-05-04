@@ -202,27 +202,36 @@ func BatchUpdateCloudflareDNS(cfg *model.Config, ipList []string, bwResults []*n
 			return err
 		}
 
-		var listResp CloudflareResponse
-		json.NewDecoder(resp.Body).Decode(&listResp)
+			var listResp CloudflareResponse
+		var decodeErr error
+		decodeErr = json.NewDecoder(resp.Body).Decode(&listResp)
 		resp.Body.Close()
 
-		if !listResp.Success {
-			err := fmt.Errorf("查询 DNS 记录失败: %v", listResp.Errors)
-			logger.Sugar().Errorf("[尝试 %d/%d] DNS 更新出错: %v", attempt, maxRetries, err)
+		if decodeErr != nil || !listResp.Success {
+			listErr := decodeErr
+			if listErr == nil {
+				listErr = fmt.Errorf("查询 DNS 记录失败: %v", listResp.Errors)
+			}
+			logger.Sugar().Errorf("[尝试 %d/%d] DNS 更新出错: %v", attempt, maxRetries, listErr)
 			if attempt < maxRetries {
 				time.Sleep(time.Duration(retryDelay) * time.Second)
 				continue
 			}
-			logger.Sugar().Errorf("Cloudflare DNS 更新失败，已重试 %d 次，错误：%v", maxRetries, err)
-			return err
+			logger.Sugar().Errorf("Cloudflare DNS 更新失败，已重试 %d 次，错误：%v", maxRetries, listErr)
+			return listErr
 		}
 
 		// 构建批量更新请求
 		existingRecords, _ := listResp.Result.([]interface{})
-		deletes := make([]interface{}, len(existingRecords))
-		for i, rec := range existingRecords {
-			if r, ok := rec.(map[string]interface{}); ok {
-				deletes[i] = map[string]string{"id": r["id"].(string)}
+		deletes := make([]interface{}, 0, len(existingRecords))
+		for _, rec := range existingRecords {
+			r, ok := rec.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			id, _ := r["id"].(string)
+			if id != "" {
+				deletes = append(deletes, map[string]string{"id": id})
 			}
 		}
 
@@ -262,17 +271,21 @@ func BatchUpdateCloudflareDNS(cfg *model.Config, ipList []string, bwResults []*n
 		}
 
 		var batchResp CloudflareResponse
-		json.NewDecoder(resp.Body).Decode(&batchResp)
+		decodeErr = json.NewDecoder(resp.Body).Decode(&batchResp)
 		resp.Body.Close()
 
-		if !batchResp.Success {
-			logger.Sugar().Errorf("[尝试 %d/%d] DNS 更新出错: %v", attempt, maxRetries, err)
+		if decodeErr != nil || !batchResp.Success {
+			batchErr := decodeErr
+			if batchErr == nil {
+				batchErr = fmt.Errorf("批量 DNS 更新失败: %v", batchResp.Errors)
+			}
+			logger.Sugar().Errorf("[尝试 %d/%d] DNS 更新出错: %v", attempt, maxRetries, batchErr)
 			if attempt < maxRetries {
 				time.Sleep(time.Duration(retryDelay) * time.Second)
 				continue
 			}
-			logger.Sugar().Errorf("Cloudflare DNS 更新失败，已重试 %d 次，错误：%v", maxRetries, err)
-			return err
+			logger.Sugar().Errorf("Cloudflare DNS 更新失败，已重试 %d 次，错误：%v", maxRetries, batchErr)
+			return batchErr
 		}
 
 		successMsg := fmt.Sprintf("Cloudflare DNS 批量更新成功！已将 %s 指向 %d 个 IP", cfg.Cloudflare.DnsRecordName, len(dnsIPList))

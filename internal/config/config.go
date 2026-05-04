@@ -17,7 +17,6 @@ func LoadConfig(configPath string) (*model.Config, error) {
 	config := defaultConfig()
 	v := viper.New()
 	v.SetConfigName("config")
-	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
 	if configPath != "" {
 		v.AddConfigPath(configPath)
@@ -37,6 +36,12 @@ func LoadConfig(configPath string) (*model.Config, error) {
 
 	if err := v.Unmarshal(config); err != nil {
 		return nil, fmt.Errorf("配置文件序列化失败: %w", err)
+	}
+
+	if warnings := validateConfig(config); len(warnings) > 0 {
+		for _, w := range warnings {
+			log.Printf("⚠️ 配置警告: %s", w)
+		}
 	}
 	return config, nil
 }
@@ -108,7 +113,7 @@ func defaultConfig() *model.Config {
 		},
 		Bandwidth: model.Bandwidth{
 			Enabled:        true,
-			SizeMB:         0.5,
+			SizeMB:         50,
 			Timeout:        5,
 			Retry:          2,
 			RetryDelay:     3,
@@ -156,4 +161,41 @@ func writeDefaultConfig(v *viper.Viper, config *model.Config, configPath string)
 		return fmt.Errorf("写入配置文件失败: %w", err)
 	}
 	return nil
+}
+
+// validateConfig 检查配置中的不合理字段，返回警告列表
+func validateConfig(cfg *model.Config) []string {
+	var warnings []string
+
+	if cfg.Global.OutputFile == "" {
+		warnings = append(warnings, "Global.OutputFile 为空，结果将无法写入文件")
+	}
+	if cfg.Global.TopN <= 0 {
+		warnings = append(warnings, "Global.TopN 必须 > 0")
+	}
+	if cfg.Global.PerCountryTopN <= 0 {
+		warnings = append(warnings, "Global.PerCountryTopN 必须 > 0")
+	}
+	if cfg.Global.BandwidthCandidates <= 0 {
+		warnings = append(warnings, "Global.BandwidthCandidates 必须 > 0")
+	}
+	if cfg.Bandwidth.SizeMB <= 0 {
+		warnings = append(warnings, "Bandwidth.SizeMB 必须 > 0，否则测速 URL 会下载 0 字节")
+	}
+	if cfg.Tcp.Probes <= 0 {
+		warnings = append(warnings, "Tcp.Probes 必须 > 0")
+	}
+	if cfg.Tcp.Timeout <= 0 {
+		warnings = append(warnings, "Tcp.Timeout 必须 > 0")
+	}
+	if cfg.Tcp.MaxWorkers <= 0 {
+		warnings = append(warnings, "Tcp.MaxWorkers 必须 > 0")
+	}
+	if cfg.Availability.Retry <= 0 {
+		warnings = append(warnings, "Availability.Retry 必须 > 0")
+	}
+	if cfg.Bandwidth.Retry <= 0 {
+		warnings = append(warnings, "Bandwidth.Retry 必须 > 0")
+	}
+	return warnings
 }
