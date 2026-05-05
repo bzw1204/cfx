@@ -18,14 +18,25 @@ additional_sources:
   - enable: true
     url: "https://wtf-359.pages.dev/wtf.txt"
 availability:
-  enable: true
+  enable: false
   retry: 2
   timeout: 3
   retry_delay: 3
   max_workers: 1000
   connect_timeout: 5
-  check_api: https://api.090227.xyz/check
+  check_api: https://cloudflare.com/cdn-cgi/trace
 bandwidth:
   enable: true
   timeout: 5
   template: https://speed.cloudflare.com/__down?bytes={bytes}
+
+# HTTP 服务配置
+http:
+  enabled: true      # 是否启用 HTTP 服务
+  port: 8080         # 监听端口
+  path: "/ips"       # 返回 IP 列表的路径
+
+# 定时任务配置
+schedule:
+  enabled: false     # 是否启用定时任务
+  interval: "1h"     # 执行间隔，支持 duration (如 "1h", "30m") 或 cron 表达式 (如 "cron:0 */2 * * *")

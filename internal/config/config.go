@@ -59,10 +59,15 @@ func defaultConfig() *model.Config {
 		},
 		Tcp: model.TCP{
 			Probes:         2,
-			Timeout:        5,
 			MinSuccessRate: 0.5,
 			SocketTimeout:  5,
-			MaxWorkers:     300,
+			NetworkTestConfig: model.NetworkTestConfig{
+				Timeout:        5,
+				ConnectTimeout: 5,
+				Retry:          1,
+				RetryDelay:     1,
+				MaxWorkers:     300,
+			},
 		},
 		Filter: model.Filter{
 			CountriesEnabled: false,
@@ -95,38 +100,52 @@ func defaultConfig() *model.Config {
 			{Enabled: true, Url: "https://countrymerge.pages.dev/all.txt"},
 			{Enabled: true, Url: "https://wtf-359.pages.dev/wtf.txt"},
 		},
-		Node: model.Node{
-			Timeout:        5,
-			Retry:          3,
-			Retries:        3,
-			ConnectTimeout: 5,
-		},
 		Availability: model.Availability{
 			Enabled:          true,
 			CheckApi:         "https://api.090227.xyz/check",
-			Timeout:          3,
-			ConnectTimeout:   5,
-			Retry:            2,
-			RetryDelay:       3,
-			MaxWorkers:       10,
 			IPV6Availability: false,
+			NetworkTestConfig: model.NetworkTestConfig{
+				Timeout:        3,
+				ConnectTimeout: 5,
+				Retry:          2,
+				RetryDelay:     3,
+				MaxWorkers:     10,
+			},
 		},
 		Bandwidth: model.Bandwidth{
-			Enabled:        true,
-			SizeMB:         50,
-			Timeout:        5,
-			Retry:          2,
-			RetryDelay:     3,
-			UrlTemplate:    "https://speed.cloudflare.com/__down?bytes={bytes}",
-			ProcessBuffer:  2,
-			ConnectTimeout: 3,
-			MaxWorkers:     10,
+			Enabled:       true,
+			SizeMB:        50,
+			UrlTemplate:   "https://speed.cloudflare.com/__down?bytes={bytes}",
+			ProcessBuffer: 2,
+			NetworkTestConfig: model.NetworkTestConfig{
+				Timeout:        5,
+				ConnectTimeout: 3,
+				Retry:          2,
+				RetryDelay:     3,
+				MaxWorkers:     10,
+			},
 		},
 		Logger: model.Logger{
-			Enabled: false,
-			Level:   "info",
-			Format:  "json",
-			Output:  "cfnb.log",
+			Enabled:       true,
+			Level:         "info",
+			Format:        "json",
+			Output:        "cfnb.log",
+			ConsoleOutput: true,
+			FileOutput:    true,
+			LogDir:        "./logs",
+			MaxFileSize:   100,
+			MaxBackups:    7,
+			MaxAge:        30,
+			Compress:      true,
+		},
+		Http: model.Http{
+			Enabled: true,
+			Port:    8080,
+			Path:    "/ips",
+		},
+		Schedule: model.Schedule{
+			Enabled:  false,
+			Interval: "1h",
 		},
 	}
 }
@@ -152,10 +171,11 @@ func writeDefaultConfig(v *viper.Viper, config *model.Config, configPath string)
 	v.Set("cloudflare", config.Cloudflare)
 	v.Set("dns", config.Dns)
 	v.Set("additional_sources", config.AdditionalSources)
-	v.Set("node", config.Node)
 	v.Set("availability", config.Availability)
 	v.Set("bandwidth", config.Bandwidth)
 	v.Set("logger", config.Logger)
+	v.Set("http", config.Http)
+	v.Set("schedule", config.Schedule)
 
 	if err := v.WriteConfigAs(configFile); err != nil {
 		return fmt.Errorf("写入配置文件失败: %w", err)
@@ -196,6 +216,12 @@ func validateConfig(cfg *model.Config) []string {
 	}
 	if cfg.Bandwidth.Retry <= 0 {
 		warnings = append(warnings, "Bandwidth.Retry 必须 > 0")
+	}
+	if cfg.Http.Enabled && cfg.Http.Port <= 0 {
+		warnings = append(warnings, "Http.Port 必须 > 0")
+	}
+	if cfg.Schedule.Enabled && cfg.Schedule.Interval == "" {
+		warnings = append(warnings, "Schedule.Interval 不能为空")
 	}
 	return warnings
 }

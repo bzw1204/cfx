@@ -1,9 +1,10 @@
 # Build stage
-FROM golang:1.26-alpine AS builder
+FROM docker.1ms.run/golang:1.26-alpine AS builder
 
 WORKDIR /build
 
 # Build dependencies
+RUN go env -w GOPROXY=https://goproxy.cn,direct
 RUN apk add --no-cache git ca-certificates
 
 # Cache module downloads
@@ -15,7 +16,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cfx .
 
 # Runtime stage
-FROM alpine:3.21
+FROM docker.1ms.run/alpine:3.21
 
 RUN apk add --no-cache ca-certificates tzdata
 

@@ -114,11 +114,11 @@ func WhiteListFilter(nodes []string, cfg *model.Config) []string {
 // ────────── TCP 测试 ──────────
 
 // TCPTry 执行 TCP 连通性测试，返回按成功率和延迟排序的结果
-func TCPTry(nodes []string, cfg *model.Config) []*network.ProbeResult {
+func TCPTry(nodes []string, cfg *model.Config, progressMgr *utils.ProgressManager) []*network.ProbeResult {
 	logger := config.GetLogger()
 	logger.Sugar().Infof("开始 TCP 连接测试（超时 %.1fs, 并发 %d)", cfg.Tcp.Timeout, cfg.Tcp.MaxWorkers)
 	tcpResults, err := network.ProbeTCPNodes(nodes, float64(cfg.Tcp.Timeout), cfg.Tcp.Probes, cfg.Tcp.MaxWorkers, func(completed, total int) {
-		utils.PrintProgress("TCP 测试", completed, total, "")
+		progressMgr.UpdateProgress("tcp_test", "TCP测试", completed, total, "")
 	})
 	if err != nil {
 		logger.Sugar().Fatal("TCP 测试出错", zap.Error(err))
@@ -191,71 +191,50 @@ func SelectBandwidthCandidates(tcpResults []*network.ProbeResult, cfg *model.Con
 
 // CheckAvailabilityWithRetry 对候选节点进行可用性二次检测，支持自动重试
 // 返回值: passed 通过节点列表, ipInfo 节点→IP协议栈映射
-func CheckAvailabilityWithRetry(candidates []string, cfg *model.Config) (passed []string, ipInfo map[string]string) {
+func CheckAvailabilityWithRetry(candidates []string, cfg *model.Config, progressMgr *utils.ProgressManager) (passed []string, ipInfo map[string]string) {
 	logger := config.GetLogger()
 	if !cfg.Availability.Enabled {
 		return candidates, make(map[string]string)
 	}
 
-	for attempt := 1; attempt <= cfg.Availability.Retry; attempt++ {
-		logger.Sugar().Infof("[可用性检测] 第 %d 轮检测", attempt)
+	// 使用通用并发执行器
+	executor := utils.NewConcurrentExecutor(
+		logger,
+		cfg.Availability.MaxWorkers,
+		cfg.Availability.Retry,
+		time.Duration(cfg.Availability.RetryDelay)*time.Second,
+		progressMgr,
+		"availability_check",
+		"可用性检测",
+	)
 
-		total := len(candidates)
-		completed := 0
-		lastPrint := time.Now()
-
-		sem := make(chan struct{}, cfg.Availability.MaxWorkers)
-		resultChan := make(chan *network.AvailabilityResult, total)
-
-		for _, node := range candidates {
-			go func(nodeStr string) {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Sugar().Warnf("[可用性检测] goroutine panic: %v", r)
-						resultChan <- &network.AvailabilityResult{Node: nodeStr, Available: false, Stack: "unknown"}
-					}
-				}()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				result, _ := network.CheckAvailability(nodeStr, cfg.Availability.CheckApi, cfg.Availability.ConnectTimeout, cfg.Availability.Timeout)
-				resultChan <- result
-			}(node)
+	workFunc := func(node string) (interface{}, error) {
+		result, err := network.CheckAvailability(node, cfg.Availability.CheckApi, cfg.Availability.ConnectTimeout, cfg.Availability.Timeout)
+		if err != nil {
+			return nil, err
 		}
-
-		var availResults []*network.AvailabilityResult
-		passedCount := 0
-		for completed < total {
-			result := <-resultChan
-			availResults = append(availResults, result)
-			if result.Available {
-				passedCount++
-			}
-			completed++
-			now := time.Now()
-			if now.Sub(lastPrint).Seconds() >= 1 || completed == total {
-				utils.PrintProgress("[可用性检测]", completed, total, fmt.Sprintf("通过数量：%d", passedCount))
-				lastPrint = now
-			}
+		if !result.Available {
+			return nil, fmt.Errorf("node %s not available", node)
 		}
+		return result, nil
+	}
 
-		passed = make([]string, 0, passedCount)
-		ipInfo = make(map[string]string, passedCount)
-		for _, r := range availResults {
-			if r.Available {
-				passed = append(passed, r.Node)
-				ipInfo[r.Node] = r.Stack
-			}
-		}
-		if len(passed) > 0 {
-			logger.Sugar().Infof("可用性检测通过 %d 个节点", len(passed))
-			return
-		}
+	results, err := executor.ExecuteWithFilter(candidates, workFunc)
+	if err != nil {
+		logger.Sugar().Warnf("可用性检测失败: %v", err)
+		return candidates, make(map[string]string)
+	}
 
-		if attempt < cfg.Availability.Retry {
-			logger.Sugar().Warnf("本轮可用性检测通过率为 0%%，等待 %d 秒后重试", cfg.Availability.RetryDelay)
-			time.Sleep(time.Duration(cfg.Availability.RetryDelay) * time.Second)
+	passed = make([]string, 0, len(results))
+	ipInfo = make(map[string]string, len(results))
+	for _, result := range results {
+		passed = append(passed, result.Item)
+		if availResult, ok := result.Result.(*network.AvailabilityResult); ok {
+			ipInfo[result.Item] = availResult.Stack
 		}
 	}
+
+	logger.Sugar().Infof("可用性检测通过 %d 个节点", len(passed))
 
 	logger.Sugar().Errorf("可用性检测经 %d 轮重试后仍无节点通过，降级使用原始候选列表", cfg.Availability.Retry)
 	return candidates, make(map[string]string)
@@ -265,7 +244,7 @@ func CheckAvailabilityWithRetry(candidates []string, cfg *model.Config) (passed 
 
 // MeasureBandwidthWithRetry 对候选节点进行带宽测速，支持自动重试
 // 返回值: 测速结果列表（按速度降序），全部失败时返回 nil
-func MeasureBandwidthWithRetry(candidates []string, cfg *model.Config) []*network.BandwidthResult {
+func MeasureBandwidthWithRetry(candidates []string, cfg *model.Config, progressMgr *utils.ProgressManager) []*network.BandwidthResult {
 	logger := config.GetLogger()
 	if !cfg.Bandwidth.Enabled {
 		return nil
@@ -281,55 +260,42 @@ func MeasureBandwidthWithRetry(candidates []string, cfg *model.Config) []*networ
 	}
 	bandwidthURL := strings.ReplaceAll(tpl, "{bytes}", fmt.Sprintf("%d", bytes))
 
-	for attempt := 1; attempt <= cfg.Bandwidth.Retry; attempt++ {
-		logger.Sugar().Infof("[带宽测速] 第 %d 轮测试", attempt)
+	// 使用通用并发执行器
+	executor := utils.NewConcurrentExecutor(
+		logger,
+		cfg.Bandwidth.MaxWorkers,
+		cfg.Bandwidth.Retry,
+		time.Duration(cfg.Bandwidth.RetryDelay)*time.Second,
+		progressMgr,
+		"bandwidth_test",
+		"带宽测速",
+	)
 
-		total := len(candidates)
-		completed := 0
-		lastPrint := time.Now()
-
-		sem := make(chan struct{}, cfg.Bandwidth.MaxWorkers)
-		resultChan := make(chan *network.BandwidthResult, total)
-
-		for _, node := range candidates {
-			go func(nodeStr string) {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Sugar().Warnf("[带宽测速] goroutine panic: %v", r)
-						resultChan <- &network.BandwidthResult{Node: nodeStr, Speed: 0}
-					}
-				}()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				result, _ := network.MeasureBandwidth(nodeStr, bandwidthURL, cfg.Bandwidth.ConnectTimeout, cfg.Bandwidth.Timeout)
-				resultChan <- result
-			}(node)
+	workFunc := func(node string) (interface{}, error) {
+		result, err := network.MeasureBandwidth(node, bandwidthURL, cfg.Bandwidth.ConnectTimeout, cfg.Bandwidth.Timeout)
+		if err != nil {
+			return nil, err
 		}
-
-		var bwResults []*network.BandwidthResult
-		for completed < total {
-			result := <-resultChan
-			if result.Speed > 0 {
-				bwResults = append(bwResults, result)
-			}
-			completed++
-			now := time.Now()
-			if now.Sub(lastPrint).Seconds() >= 1 || completed == total {
-				utils.PrintProgress("[带宽测速]", completed, total, "")
-				lastPrint = now
-			}
+		if result.Speed <= 0 {
+			return nil, fmt.Errorf("node %s speed test failed", node)
 		}
+		return result, nil
+	}
 
-		if len(bwResults) > 0 {
-			return bwResults
-		}
+	results, err := executor.ExecuteWithFilter(candidates, workFunc)
+	if err != nil {
+		logger.Sugar().Warnf("带宽测速失败: %v", err)
+		return nil
+	}
 
-		if attempt < cfg.Bandwidth.Retry {
-			logger.Sugar().Warnf("本轮测速无有效结果，等待 %d 秒后重试", cfg.Bandwidth.RetryDelay)
-			time.Sleep(time.Duration(cfg.Bandwidth.RetryDelay) * time.Second)
+	bwResults := make([]*network.BandwidthResult, 0, len(results))
+	for _, result := range results {
+		if bwResult, ok := result.Result.(*network.BandwidthResult); ok {
+			bwResults = append(bwResults, bwResult)
 		}
 	}
-	return nil
+
+	return bwResults
 }
 
 // ────────── 最终节点选取 ──────────
