@@ -10,6 +10,7 @@ services:
       - "8080:8080"  # HTTP 服务端口
     environment:
       # 可通过环境变量覆盖配置（可选）
+      - TZ=Asia/Shanghai
       - CFX_HTTP_ENABLED=true
       - CFX_HTTP_PORT=8080
       - CFX_SCHEDULE_ENABLED=true
