@@ -1,0 +1,16 @@
+services:
+  cfnb:
+    container_name: cfnb
+    image: baizw/cfnb:latest
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml
+    restart: always
+    ports:
+      - "8080:8080"  # HTTP 服务端口
+    environment:
+      # 可通过环境变量覆盖配置（可选）
+      - CFX_HTTP_ENABLED=true
+      - CFX_HTTP_PORT=8080
+      - CFX_SCHEDULE_ENABLED=true
+      - CFX_SCHEDULE_INTERVAL=1h

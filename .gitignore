@@ -1,3 +1,7 @@
 *.log
 data/
 cfx
+.DS_STORE
+.arts/
+.claude/
+.codeartsdoer/
