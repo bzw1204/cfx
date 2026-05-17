@@ -17,7 +17,8 @@ type ProgressManager struct {
 	isTerminal bool
 	tasks      map[string]*ProgressTask
 	mu         sync.RWMutex
-	lastRender time.Time
+	lastRender   time.Time
+	lastLogTime  time.Time
 }
 
 // ProgressTask 表示单个任务的进度
@@ -38,7 +39,8 @@ func NewProgressManager(logger *zap.Logger) *ProgressManager {
 		logger:     logger,
 		isTerminal: isTerminal(),
 		tasks:      make(map[string]*ProgressTask),
-		lastRender: time.Now(),
+		lastRender:  time.Now(),
+		lastLogTime: time.Now(),
 	}
 }
 
@@ -65,16 +67,20 @@ func (pm *ProgressManager) UpdateProgress(taskID, label string, completed, total
 
 	pm.tasks[taskID] = task
 
-	// 记录到日志
-	// Log to file
-	pm.logger.Info("progress_update",
-		zap.String("task_id", taskID),
-		zap.String("label", label),
-		zap.Int("completed", completed),
-		zap.Int("total", total),
-		zap.Float64("percentage", float64(completed)/float64(total)*100),
-		zap.String("extra", extra),
-	)
+	// 记录到日志（限制频率，避免日志文件过大）
+	// Log to file (rate-limited to avoid log file bloat)
+	now := time.Now()
+	if now.Sub(pm.lastLogTime) >= time.Second || completed == total {
+		pm.logger.Info("progress_update",
+			zap.String("task_id", taskID),
+			zap.String("label", label),
+			zap.Int("completed", completed),
+			zap.Int("total", total),
+			zap.Float64("percentage", float64(completed)/float64(total)*100),
+			zap.String("extra", extra),
+		)
+		pm.lastLogTime = now
+	}
 
 	// 终端显示（限制刷新频率避免闪烁）
 	// Terminal display (limit refresh rate to avoid flickering)

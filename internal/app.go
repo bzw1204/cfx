@@ -236,8 +236,12 @@ func CheckAvailabilityWithRetry(candidates []string, cfg *model.Config, progress
 
 	logger.Sugar().Infof("可用性检测通过 %d 个节点", len(passed))
 
-	logger.Sugar().Errorf("可用性检测经 %d 轮重试后仍无节点通过，降级使用原始候选列表", cfg.Availability.Retry)
-	return candidates, make(map[string]string)
+	if len(passed) == 0 {
+		logger.Sugar().Warnf("可用性检测经 %d 轮重试后仍无节点通过，降级使用原始候选列表", cfg.Availability.Retry)
+		return candidates, make(map[string]string)
+	}
+
+	return passed, ipInfo
 }
 
 // ────────── 带宽测速 ──────────

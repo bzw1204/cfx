@@ -47,33 +47,63 @@ func NewConcurrentExecutor(logger *zap.Logger, maxWorkers, retry int, retryDelay
 // items: 要处理的项列表
 // workFunc: 处理单个项的函数
 // 返回: 成功的结果列表，如果有任何失败则返回错误
+// 重试策略: 每轮只重试上一轮失败的节点，已成功的不重复执行
 func (ce *ConcurrentExecutor) Execute(items []string, workFunc WorkFunc) ([]ExecuteResult, error) {
 	ce.logger.Info("starting_concurrent_execution",
 		zap.String("operation", ce.operationName),
 		zap.Int("total_items", len(items)),
 		zap.Int("max_workers", ce.maxWorkers))
 
+	allResults := make([]ExecuteResult, 0, len(items))
+	remaining := items
+
 	for attempt := 1; attempt <= ce.retry; attempt++ {
 		ce.logger.Info("execution_attempt",
 			zap.Int("attempt", attempt),
-			zap.String("operation", ce.operationName))
+			zap.String("operation", ce.operationName),
+			zap.Int("remaining_items", len(remaining)))
 
-		results, err := ce.executeAttempt(items, workFunc)
-		if err == nil && len(results) > 0 {
+		results, _ := ce.executeAttempt(remaining, workFunc)
+		allResults = append(allResults, results...)
+
+		// 全部成功，提前结束
+		if len(allResults) >= len(items) {
 			ce.logger.Info("execution_success",
 				zap.String("operation", ce.operationName),
-				zap.Int("successful_results", len(results)))
-			return results, nil
+				zap.Int("successful_results", len(allResults)))
+			return allResults, nil
 		}
 
-		if attempt < ce.retry {
+		// 收集本轮失败的节点用于重试
+		successSet := make(map[string]bool, len(results))
+		for _, r := range results {
+			successSet[r.Item] = true
+		}
+		failed := make([]string, 0, len(remaining)-len(results))
+		for _, item := range remaining {
+			if !successSet[item] {
+				failed = append(failed, item)
+			}
+		}
+		remaining = failed
+
+		if attempt < ce.retry && len(remaining) > 0 {
 			ce.logger.Warn("execution_retry",
 				zap.Int("attempt", attempt),
 				zap.Int("max_retries", ce.retry),
+				zap.Int("failed_count", len(remaining)),
 				zap.Duration("retry_delay", ce.retryDelay),
 				zap.String("operation", ce.operationName))
 			time.Sleep(ce.retryDelay)
 		}
+	}
+
+	if len(allResults) > 0 {
+		ce.logger.Info("execution_partial_success",
+			zap.String("operation", ce.operationName),
+			zap.Int("successful_results", len(allResults)),
+			zap.Int("total_items", len(items)))
+		return allResults, nil
 	}
 
 	return nil, fmt.Errorf("operation %s failed after %d attempts", ce.operationName, ce.retry)
